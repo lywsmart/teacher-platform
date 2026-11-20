@@ -1,0 +1,6 @@
+<script setup lang="ts">
+import { nextTick, onMounted, ref } from 'vue'; import * as echarts from 'echarts'; import { api } from '../api'
+const trend=ref<HTMLElement>(); const types=ref<HTMLElement>(); const levels=ref<HTMLElement>(); const ranks=ref<HTMLElement>()
+onMounted(async()=>{const d=(await api.get('/analytics')).data;await nextTick();const make=(el:HTMLElement,data:any)=>echarts.init(el).setOption({tooltip:{trigger:'item'},series:[{type:'pie',radius:['38%','67%'],data}]});echarts.init(trend.value!).setOption({tooltip:{trigger:'axis'},xAxis:{type:'category',data:d.trend.map((x:any)=>x.year)},yAxis:{},series:[{type:'bar',data:d.trend.map((x:any)=>x.count),itemStyle:{color:'#2d7c60'}},{type:'line',data:d.trend.map((x:any)=>x.score),itemStyle:{color:'#e1aa4d'}}]});make(types.value!,d.by_type);make(levels.value!,d.by_level);make(ranks.value!,d.rank)})
+</script>
+<template><div class="panel"><h3>历年成果数量与积分变化</h3><div ref="trend" class="charts"/></div><div class="grid-2" style="margin-top:18px;grid-template-columns:repeat(3,1fr)"><div class="panel"><h3>成果类别占比</h3><div ref="types" class="charts"/></div><div class="panel"><h3>成果级别分布</h3><div ref="levels" class="charts"/></div><div class="panel"><h3>本人排名分析</h3><div ref="ranks" class="charts"/></div></div></template>

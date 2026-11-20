@@ -1,0 +1,40 @@
+:root {
+  --green: #175cce;
+  --green2: #2874e9;
+  --ink: #10284c;
+  --muted: #576e8a;
+  --line: #dbe6f5;
+  color: #172c48;
+  background: #eef4fc;
+}
+#app { --el-color-primary: #175cce; }
+.sidebar { background: #0c2244; overflow-y: auto; }
+.brand { color: #f1f6ff; }
+.brand-mark { background: #3b83f6; color: #fff; }
+.sidebar .el-menu-item { color: #c1d4ef; }
+.sidebar .el-menu-item:hover { background: #17375f; }
+.sidebar .el-menu-item.is-active { color: #fff; background: #175cce; }
+.hero { background: linear-gradient(113deg, #123a83, #2372e0); }
+.hero p { color: #ecf4ff; }
+.metric:after { background: #e9f2ff; }
+.metric em, .app-card > span { color: #175cce; }
+.complete, .app-card.active, .app-card:hover { background: #edf5ff; }
+.login-art {
+  background: radial-gradient(ellipse at 80% 75%, #1b5cba, transparent 65%), #0c2244;
+  justify-content: flex-start;
+  padding: clamp(28px, 6vw, 90px);
+}
+.login-box { width: min(100% - 40px, 400px); }
+.login-box .el-input { margin-bottom: 0; }
+body { min-width: 0; }
+@media (max-width: 800px) {
+  .sidebar { width: 155px; padding: 14px 6px; }
+  .sidebar .brand { padding: 6px 5px 18px; }
+  .sidebar .brand-mark { display: none; }
+  .sidebar .brand b { font-size: 14px; letter-spacing: 0; }
+  .main { margin-left: 155px; width: calc(100% - 155px); min-width: 0; }
+  .page, header { padding-inline: 14px; }
+  .title-layout, .ai-layout { grid-template-columns: minmax(0, 1fr); }
+  .login { grid-template-columns: 1fr; }
+  .login-art h1 { margin: 18px 0; font-size: 29px; }
+}
