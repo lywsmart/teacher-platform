@@ -87,6 +87,8 @@ async function save(item: Material) {
     <el-table v-if="projects.length" :data="items" empty-text="该项目还没有上传材料">
       <el-table-column prop="name" label="文件名" min-width="200" />
       <el-table-column prop="category" label="材料类别" min-width="160" />
+      <el-table-column prop="status" label="审核状态" width="110" />
+      <el-table-column prop="note" label="审核意见" min-width="125" />
       <el-table-column label="大小" width="110"><template #default="{ row }">{{ (row.size / 1024).toFixed(1) }} KB</template></el-table-column>
       <el-table-column label="操作" width="90"><template #default="{ row }"><el-button link type="primary" @click="save(row)">下载</el-button></template></el-table-column>
     </el-table>

@@ -12,12 +12,14 @@ import { api } from './api'
 import Admin from './views/Admin.vue'
 import Materials from './views/Materials.vue'
 import Account from './views/Account.vue'
+import Awards from './views/Awards.vue'
 const router=createRouter({history:createWebHistory(),routes:[
  {path:'/login',component:Login,meta:{public:true}}, {path:'/',component:Dashboard},
  {path:'/achievements',component:Achievements},{path:'/annual',component:Annual},{path:'/titles',component:TitleApplications},
  {path:'/files',component:Files},{path:'/analytics',component:Analytics},{path:'/ai',component:AISummaries},
  {path:'/profile',component:Profile},{path:'/account',component:Account},
  {path:'/materials',component:Materials},
+ {path:'/awards',component:Awards},
  {path:'/admin',component:Admin,meta:{admin:true}},
  {path:'/settings',redirect:'/admin'}
 ]})

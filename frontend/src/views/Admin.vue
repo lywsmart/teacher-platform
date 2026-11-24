@@ -2,6 +2,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, errorMessage } from '../api'
+import AdminEvidence from './AdminEvidence.vue'
 import Settings from './Settings.vue'
 
 type User = { id: number; username: string; name: string; college: string; is_active: boolean; is_admin: boolean }
@@ -79,6 +80,7 @@ onMounted(() => load())
         <el-button v-if="next" style="margin-top: 12px" @click="load(next)">加载更多</el-button>
       </section>
     </el-tab-pane>
-    <el-tab-pane label="系统配置与备份" lazy><Settings /></el-tab-pane>
+    <el-tab-pane label="佐证材料" lazy><AdminEvidence /></el-tab-pane>
+    <el-tab-pane label="系统备份与设置" lazy><Settings /></el-tab-pane>
   </el-tabs>
 </template>

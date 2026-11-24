@@ -20,6 +20,8 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.admin import router as account_router, require_admin
+from app.awards import AwardDetail, router as award_router
+from app.evidence import router as evidence_router
 from app.materials import ApplicationMaterial, router as material_router
 from app.core.database import Base, SessionLocal, engine, get_db
 from app.core.security import create_token, current_user, verify_password
@@ -36,9 +38,11 @@ from app.services.storage_service import StorageService
 
 
 settings = get_settings()
-app = FastAPI(title=settings.app_name, version="2.0.0")
+app = FastAPI(title=settings.app_name, version="2.1.0")
 app.include_router(account_router)
 app.include_router(material_router)
+app.include_router(award_router)
+app.include_router(evidence_router)
 app.add_middleware(CORSMiddleware, allow_origins=settings.cors_list, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 
@@ -57,7 +61,7 @@ def health():
 
 @app.post("/api/v1/auth/login")
 def login(payload: LoginIn, db: Session = Depends(get_db)):
-    user = db.scalar(select(User).where(User.username == payload.username))
+    user = db.scalar(select(User).where(User.username == payload.username.strip().lower()))
     if not user or not user.is_active or not verify_password(payload.password, user.password_hash):
         raise HTTPException(401, "用户名或密码错误")
     return {"access_token": create_token(user.id, user.password_hash), "token_type": "bearer", "user": {"id": user.id, "name": user.name, "username": user.username}}
@@ -122,6 +126,8 @@ def get_achievement(item_id: int, user=Depends(current_user), db: Session = Depe
 @app.put("/api/v1/achievements/{item_id}", response_model=AchievementOut)
 def update_achievement(item_id: int, payload: AchievementIn, user=Depends(current_user), db: Session = Depends(get_db)):
     item = owned_achievement(item_id, user.id, db)
+    if db.get(AwardDetail, item_id):
+        raise HTTPException(409, "请在「获奖成果」中编辑此记录")
     for key, value in payload.model_dump().items(): setattr(item, key, value)
     db.commit(); db.refresh(item); return item
 
@@ -136,7 +142,16 @@ def delete_achievement(item_id: int, user=Depends(current_user), db: Session = D
 def copy_achievement(item_id: int, user=Depends(current_user), db: Session = Depends(get_db)):
     source = owned_achievement(item_id, user.id, db)
     data = {c.name: getattr(source, c.name) for c in Achievement.__table__.columns if c.name not in {"id", "created_at", "updated_at", "deleted_at"}}
-    data["title"] = f"{data['title']}（副本）"; item = Achievement(**data); db.add(item); db.commit(); db.refresh(item); return item
+    data["title"] = f"{data['title'][:251]}（副本）"
+    item = Achievement(**data)
+    db.add(item)
+    detail = db.get(AwardDetail, source.id)
+    if detail is not None:
+        db.flush()
+        db.add(AwardDetail(achievement_id=item.id, template=detail.template, details=detail.details))
+    db.commit()
+    db.refresh(item)
+    return item
 
 
 @app.post("/api/v1/achievements/batch-delete")
@@ -178,9 +193,20 @@ async def import_achievements(file: UploadFile = File(...), user=Depends(current
 @app.post("/api/v1/achievements/{item_id}/files")
 async def upload_file(item_id: int, file_category: str = Form("其他"), file: UploadFile = File(...), user=Depends(current_user), db: Session = Depends(get_db)):
     item = owned_achievement(item_id, user.id, db)
-    stored, relative, size, extension = await StorageService().save_upload(file, item.year, item.id)
-    record = AchievementFile(achievement_id=item.id, original_name=file.filename or stored, stored_name=stored, file_path=relative, file_type=extension, file_size=size, file_category=file_category)
-    db.add(record); db.commit(); db.refresh(record)
+    name = Path((file.filename or "").replace("\\", "/")).name
+    if not 1 <= len(name) <= 255 or any(ord(char) < 32 for char in name) or len(file_category) > 64:
+        raise HTTPException(422, "文件名或类别无效")
+    storage = StorageService()
+    stored, relative, size, extension = await storage.save_upload(file, item.year, item.id)
+    record = AchievementFile(achievement_id=item.id, original_name=name, stored_name=stored, file_path=relative, file_type=extension, file_size=size, file_category=file_category)
+    try:
+        db.add(record)
+        db.commit()
+    except Exception:
+        db.rollback()
+        storage.resolve(relative).unlink(missing_ok=True)
+        raise
+    db.refresh(record)
     return {c.name: getattr(record, c.name) for c in AchievementFile.__table__.columns}
 
 

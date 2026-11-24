@@ -71,6 +71,7 @@ def list_users(db: Session = Depends(get_db), after: int = Query(0, ge=0)):
 
 
 @router.post("/admin/users", status_code=201, dependencies=[Depends(require_admin)])
+@router.post("/auth/register", status_code=201)
 def create_user(payload: AccountCreate, db: Session = Depends(get_db)):
     user = User(username=payload.username.lower(), name=payload.name.strip(),
                 college=payload.college, password_hash=hash_password(payload.password))

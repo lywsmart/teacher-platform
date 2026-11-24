@@ -42,11 +42,16 @@ def material_info(item: ApplicationMaterial):
 
 @router.get("/{application_id}/materials")
 def list_materials(application_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    from app.evidence import EvidenceReview, review_info
+
     check_owner(application_id, user, db)
-    items = db.scalars(select(ApplicationMaterial).where(
+    items = db.execute(select(ApplicationMaterial, EvidenceReview).outerjoin(
+        EvidenceReview, (EvidenceReview.kind == "application") & (EvidenceReview.file_id == ApplicationMaterial.id)
+    ).where(
         ApplicationMaterial.application_id == application_id
     ).order_by(ApplicationMaterial.id.desc())).all()
-    return {"categories": MATERIAL_CATEGORIES, "items": [material_info(item) for item in items]}
+    return {"categories": MATERIAL_CATEGORIES,
+            "items": [{**material_info(item), **review_info(review)} for item, review in items]}
 
 
 @router.post("/{application_id}/materials", status_code=201)

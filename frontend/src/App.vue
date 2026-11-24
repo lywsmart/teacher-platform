@@ -10,7 +10,7 @@ const isLogin = computed(() => route.path === '/login')
 const account = ref<{ name: string; is_admin: boolean }>()
 const menu = [
   ['/', '工作台', House], ['/titles', '职称申报', Document], ['/materials', '申报材料', Files],
-  ['/achievements', '成果管理', Medal], ['/files', '成果附件', Files],
+  ['/awards', '获奖成果', Medal], ['/achievements', '成果管理', Medal], ['/files', '成果附件', Files],
   ['/annual', '年度档案', Document], ['/analytics', '成果分析', DataAnalysis],
   ['/ai', 'AI 成果总结', Document], ['/profile', '个人档案', User],
 ] as const
