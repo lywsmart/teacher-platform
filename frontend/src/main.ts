@@ -5,6 +5,7 @@ import 'element-plus/dist/index.css'
 import './styles.css'
 import './extras.css'
 import './blue.css'
+import './buttons.css'
 import App from './App.vue'
 import router from './router'
 createApp(App).use(createPinia()).use(router).use(ElementPlus).mount('#app')

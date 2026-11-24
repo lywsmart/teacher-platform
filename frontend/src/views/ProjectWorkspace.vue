@@ -227,7 +227,7 @@ async function exportPackage(mode: 'draft' | 'package') {
           <el-button @click="run(() => download(`${base}/reports`, '申报对照与计分.xlsx'))">下载 Excel</el-button>
           <el-button @click="exportPackage('draft')">导出草稿</el-button>
           <el-button type="primary" @click="exportPackage('package')">生成申报材料包</el-button>
-          <router-link :to="{ path: '/ai', query: { project: project.id } }">撰写本项目业绩总结</router-link>
+          <router-link class="action-button" :to="{ path: '/ai', query: { project: project.id } }">撰写本项目业绩总结</router-link>
         </div>
         <el-table :data="history" empty-text="暂无历史导出">
           <el-table-column prop="id" label="记录编号" width="100" />
@@ -267,7 +267,7 @@ async function exportPackage(mode: 'draft' | 'package') {
           </div>
         </el-checkbox-group>
       </el-form-item>
-      <el-form-item label="上传补充佐证"><input type="file" :disabled="busy" @change="upload($event, editing)" /></el-form-item>
+      <el-form-item label="上传补充佐证"><input type="file" aria-label="上传补充佐证" :disabled="busy" @change="upload($event, editing)" /></el-form-item>
       <el-button type="primary" native-type="submit" :loading="busy">保存本次引用</el-button>
     </el-form>
   </el-dialog>

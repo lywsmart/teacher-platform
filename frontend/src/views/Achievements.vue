@@ -199,7 +199,7 @@ onMounted(async () => {
           </div>
           <label v-if="upload" class="file-picker">
             <span class="muted">支持 {{ upload.extensions.map(ext => ext.slice(1).toUpperCase()).join('、') }}，单个文件最多 {{ upload.max_mb }} MB。</span>
-            <input type="file" multiple :accept="upload.extensions.join(',')" :disabled="busy" @change="selectFiles">
+            <input type="file" aria-label="选择电子佐证材料" multiple :accept="upload.extensions.join(',')" :disabled="busy" @change="selectFiles">
           </label>
           <el-alert v-else title="上传规则暂不可用，请刷新页面重试。" type="info" :closable="false" />
           <div v-for="(item, index) in pending" :key="item.id" class="evidence-row pending-evidence">
@@ -231,6 +231,4 @@ onMounted(async () => {
 .pending-evidence .el-select { width: 146px; }
 .evidence-error { flex: 0 0 100%; color: #b52c32; }
 .file-picker { display: grid; gap: 8px; padding: 8px 0; }
-.file-picker input { max-width: 100%; }
-.file-picker input::file-selector-button { padding: 6px 10px; border: 1px solid #b6cdee; border-radius: 6px; color: #134789; background: #edf5ff; cursor: pointer; }
 </style>

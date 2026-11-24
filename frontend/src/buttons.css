@@ -1,0 +1,183 @@
+:root {
+  --action-primary: #175cce;
+  --action-primary-hover: #124daee;
+  --action-primary-active: #0d3d8c;
+  --action-secondary-ink: #284d7a;
+  --action-secondary-border: #c9d9ee;
+  --action-subtle: #eef5ff;
+  --action-focus: #2674d9;
+  --action-danger: #b42335;
+  --action-danger-hover: #962034;
+  --action-danger-active: #781625;
+  --action-danger-subtle: #fff0f2;
+  --action-disabled-text: #637791;
+  --action-disabled-bg: #eaf0f8;
+  --action-disabled-border: #d8e2ed;
+}
+
+.el-button,
+.action-button {
+  --el-button-bg-color: #fff;
+  --el-button-border-color: var(--action-secondary-border);
+  --el-button-text-color: var(--action-secondary-ink);
+  --el-button-hover-bg-color: var(--action-subtle);
+  --el-button-hover-border-color: #a7c4eb;
+  --el-button-hover-text-color: var(--action-primary-active);
+  --el-button-active-bg-color: #e2eeff;
+  --el-button-active-border-color: #8fafe0;
+  --el-button-active-text-color: var(--action-primary-active);
+  --el-button-disabled-text-color: var(--action-disabled-text);
+  --el-button-disabled-bg-color: var(--action-disabled-bg);
+  --el-button-disabled-border-color: var(--action-disabled-border);
+  min-height: 38px;
+  border-radius: 8px;
+  font-weight: 600;
+  letter-spacing: normal;
+}
+
+.el-button:not(.is-link):not(.is-circle),
+.action-button {
+  height: auto;
+  padding: 0 14px;
+}
+
+.el-button--primary:not(.is-link),
+.action-button--primary {
+  --el-button-bg-color: var(--action-primary);
+  --el-button-border-color: var(--action-primary);
+  --el-button-text-color: #fff;
+  --el-button-hover-bg-color: var(--action-primary-hover);
+  --el-button-hover-border-color: var(--action-primary-hover);
+  --el-button-hover-text-color: #fff;
+  --el-button-active-bg-color: var(--action-primary-active);
+  --el-button-active-border-color: var(--action-primary-active);
+  --el-button-active-text-color: #fff;
+}
+
+.el-button--danger:not(.is-link) {
+  --el-button-bg-color: var(--action-danger);
+  --el-button-border-color: var(--action-danger);
+  --el-button-text-color: #fff;
+  --el-button-hover-bg-color: var(--action-danger-hover);
+  --el-button-hover-border-color: var(--action-danger-hover);
+  --el-button-hover-text-color: #fff;
+  --el-button-active-bg-color: var(--action-danger-active);
+  --el-button-active-border-color: var(--action-danger-active);
+  --el-button-active-text-color: #fff;
+}
+
+.action-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid var(--el-button-border-color);
+  background: var(--el-button-bg-color);
+  color: var(--el-button-text-color);
+  font-size: 14px;
+  line-height: 1.25;
+  text-align: center;
+  text-decoration: none;
+}
+
+.action-button:hover {
+  border-color: var(--el-button-hover-border-color);
+  background: var(--el-button-hover-bg-color);
+  color: var(--el-button-hover-text-color);
+}
+
+.action-button:active {
+  border-color: var(--el-button-active-border-color);
+  background: var(--el-button-active-bg-color);
+  color: var(--el-button-active-text-color);
+}
+
+.el-button.is-link,
+.action-button--compact {
+  min-height: 32px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.el-button.is-link {
+  --el-button-text-color: var(--action-secondary-ink);
+  --el-button-hover-text-color: var(--action-primary-active);
+  --el-button-active-text-color: var(--action-primary-active);
+  border: 1px solid transparent;
+}
+
+.el-button.is-link.el-button--primary { --el-button-text-color: var(--action-primary); }
+.el-button.is-link.el-button--danger {
+  --el-button-text-color: var(--action-danger);
+  --el-button-hover-text-color: var(--action-danger-hover);
+  --el-button-active-text-color: var(--action-danger-active);
+}
+
+.el-button.is-link:not(.is-disabled):not(.is-loading):hover { background: var(--action-subtle); }
+.el-button.is-link.el-button--danger:not(.is-disabled):not(.is-loading):hover { background: var(--action-danger-subtle); }
+.el-button.is-link.is-disabled { color: var(--action-disabled-text); }
+.el-button.is-loading { cursor: progress; }
+.el-button.is-loading::before { border-radius: inherit; }
+.el-button + .el-button { margin-left: 8px; }
+.toolbar > .el-button + .el-button { margin-left: 0; }
+.el-table .cell .el-button.is-link + .el-button.is-link { margin-left: 2px; }
+
+.el-button:focus-visible,
+.action-button:focus-visible,
+.el-input-number [role="button"]:focus-visible,
+.el-pagination :is(button, .el-pager li):focus-visible,
+.el-dialog__headerbtn:focus-visible,
+.el-message-box__headerbtn:focus-visible,
+.el-dropdown-menu__item:focus-visible,
+.el-menu-item:focus-visible,
+.el-tabs__item:focus-visible,
+.user-chip:focus-visible,
+input[type="file"]:focus-visible {
+  outline: 2px solid var(--action-focus);
+  outline-offset: 2px;
+}
+
+.el-pagination {
+  --el-pagination-button-color: var(--action-secondary-ink);
+  --el-pagination-hover-color: var(--action-primary-active);
+}
+.el-pagination .el-pager li { border-radius: 6px; }
+.el-pagination .el-pager li.is-active { color: var(--action-primary-active); background: var(--action-subtle); }
+.el-input-number :is(.el-input-number__decrease, .el-input-number__increase) {
+  color: var(--action-secondary-ink);
+  background: #f3f7fd;
+}
+.el-input-number :is(.el-input-number__decrease, .el-input-number__increase):not(.is-disabled):hover {
+  color: var(--action-primary-active);
+  background: #e2eeff;
+}
+.el-input-number :is(.el-input-number__decrease, .el-input-number__increase).is-disabled {
+  color: var(--action-disabled-text);
+}
+
+input[type="file"] {
+  max-width: 100%;
+  border-radius: 6px;
+  color: var(--action-secondary-ink);
+  font: inherit;
+}
+input[type="file"]::file-selector-button {
+  min-height: 36px;
+  margin-inline-end: 10px;
+  padding: 0 12px;
+  border: 1px solid var(--action-secondary-border);
+  border-radius: 8px;
+  color: var(--action-secondary-ink);
+  background: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+input[type="file"]:not(:disabled)::file-selector-button:hover { background: var(--action-subtle); color: var(--action-primary-active); }
+input[type="file"]:disabled::file-selector-button {
+  color: var(--action-disabled-text);
+  background: var(--action-disabled-bg);
+  cursor: not-allowed;
+}

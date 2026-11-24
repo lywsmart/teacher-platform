@@ -72,7 +72,10 @@ function logout() {
       <header>
         <h2>{{ pageTitle }}</h2>
         <el-dropdown>
-          <div class="user-chip"><el-avatar :size="34">{{ account?.name?.[0] || '教' }}</el-avatar>{{ account?.name || '我的账号' }}</div>
+          <button class="user-chip" type="button">
+            <el-avatar :size="30" aria-hidden="true">{{ account?.name?.[0] || '教' }}</el-avatar>
+            {{ account?.name || '我的账号' }}
+          </button>
           <template #dropdown>
             <el-dropdown-menu>
               <el-dropdown-item @click="router.push('/account')">修改密码</el-dropdown-item>
@@ -93,6 +96,17 @@ function logout() {
   </div>
 </template>
 <style scoped>
+.user-chip {
+  min-height: 40px;
+  padding: 4px 10px 4px 5px;
+  border: 1px solid var(--action-secondary-border);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--action-secondary-ink);
+  font-weight: 600;
+}
+.user-chip:hover { background: var(--action-subtle); }
+
 .section-nav {
   display: inline-flex;
   flex-wrap: wrap;

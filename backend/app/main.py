@@ -41,7 +41,7 @@ from app.services.storage_service import ALLOWED_EXTENSIONS, StorageService
 
 
 settings = get_settings()
-app = FastAPI(title=settings.app_name, version="2.4.0")
+app = FastAPI(title=settings.app_name, version="2.4.1")
 app.include_router(account_router)
 app.include_router(material_router)
 app.include_router(award_router)

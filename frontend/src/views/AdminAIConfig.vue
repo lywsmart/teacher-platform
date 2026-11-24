@@ -62,7 +62,7 @@ onMounted(refresh)
         <el-input v-model="key" type="password" autocomplete="off" maxlength="1024" placeholder="输入 DeepSeek API Key" />
       </el-form-item>
       <el-button type="primary" native-type="submit" :disabled="busy || !key.trim()">保存密钥</el-button>
-      <el-button v-if="status?.source === 'admin'" :disabled="busy" @click="remove">清除后台密钥</el-button>
+      <el-button v-if="status?.source === 'admin'" link type="danger" :disabled="busy" @click="remove">清除后台密钥</el-button>
     </el-form>
   </section>
 </template>

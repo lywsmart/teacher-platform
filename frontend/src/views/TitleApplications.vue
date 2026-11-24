@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { MoreFilled } from '@element-plus/icons-vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { api, errorMessage } from '../api'
 import ProjectWorkspace from './ProjectWorkspace.vue'
 
@@ -24,8 +24,15 @@ const confirmOpen = ref(false)
 const operationBusy = ref(false)
 const restoring = ref<number>()
 const route = useRoute()
+const router = useRouter()
 const form = reactive({ name: '', year: new Date().getFullYear(), target_title: '副教授', status: '准备中' })
 const deletionDate = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' })
+
+watch(() => route.query.new, value => {
+  if (value !== '1') return
+  dialog.value = true
+  void router.replace({ query: { ...route.query, new: undefined } })
+}, { immediate: true })
 
 onMounted(async () => {
   try {

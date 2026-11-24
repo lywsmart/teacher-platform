@@ -102,7 +102,7 @@ async function upload(event: Event) {
       <el-button type="primary" :disabled="busy || !templates.length" @click="openEditor()">录入获奖</el-button>
       <el-button :disabled="busy" @click="run(() => download('/awards/export', '获奖成果汇总.xlsx'))">导出汇总</el-button>
     </div>
-    <p><router-link to="/titles">在职称申报项目中选入成果并填写用途</router-link></p>
+    <p><router-link class="action-button" to="/titles">前往职称申报选入成果</router-link></p>
     <el-table v-loading="busy && !editOpen && !evidenceOpen" :data="rows" empty-text="暂无获奖记录">
       <el-table-column prop="title" label="获奖名称" min-width="150" />
       <el-table-column label="类别" min-width="145"><template #default="{ row }">{{ templateName(row.template) }}</template></el-table-column>

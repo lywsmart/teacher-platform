@@ -92,6 +92,8 @@ async function save(item: Material) {
       <el-table-column label="大小" width="110"><template #default="{ row }">{{ (row.size / 1024).toFixed(1) }} KB</template></el-table-column>
       <el-table-column label="操作" width="90"><template #default="{ row }"><el-button link type="primary" @click="save(row)">下载</el-button></template></el-table-column>
     </el-table>
-    <router-link v-else to="/titles">前往职称申报创建项目</router-link>
+    <router-link v-else class="action-button action-button--primary" :to="{ path: '/titles', query: { new: '1' } }">
+      创建申报项目
+    </router-link>
   </section>
 </template>
