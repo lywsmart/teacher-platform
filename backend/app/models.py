@@ -103,6 +103,13 @@ class AchievementFile(Base, TimestampMixin):
     achievement: Mapped[Achievement] = relationship(back_populates="files")
 
 
+class AchievementUploadReceipt(Base):
+    __tablename__ = "achievement_upload_receipts"
+    achievement_id: Mapped[int] = mapped_column(ForeignKey("achievements.id"), primary_key=True)
+    upload_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    file_id: Mapped[int] = mapped_column(ForeignKey("achievement_files.id"))
+
+
 class AchievementScoreRule(Base, TimestampMixin):
     __tablename__ = "achievement_score_rules"
     id: Mapped[int] = mapped_column(primary_key=True)

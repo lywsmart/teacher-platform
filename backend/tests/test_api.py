@@ -1,8 +1,10 @@
 import os
 import zipfile
+from uuid import uuid4
 from io import BytesIO
 from tempfile import TemporaryDirectory
 from pathlib import Path
+from unittest.mock import patch
 
 test_directory = TemporaryDirectory()
 test_path = Path(test_directory.name)
@@ -13,6 +15,7 @@ from fastapi.testclient import TestClient
 from openpyxl import load_workbook
 from app.main import app
 from app.awards import AwardApplication
+from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.models import TitleApplicationItem
 
@@ -24,6 +27,85 @@ def token():
     response = client.post("/api/v1/auth/login", json={"username": "admin", "password": "test-admin-password"})
     assert response.status_code == 200
     return response.json()["access_token"]
+
+
+def test_six_character_password_and_temporary_reset():
+    with client:
+        admin = {"Authorization": f"Bearer {token()}"}
+        credentials = {"username": "password-flow", "password": "a1b2c3"}
+        invalid = client.post("/api/v1/auth/register", json={**credentials, "name": "测试", "password": "12345"})
+        assert invalid.status_code == 422
+        teacher = client.post("/api/v1/auth/register", json={**credentials, "name": "测试"})
+        assert teacher.status_code == 201
+        url = f"/api/v1/admin/users/{teacher.json()['id']}/reset-password"
+        login = client.post("/api/v1/auth/login", json=credentials).json()
+        original = {"Authorization": f"Bearer {login['access_token']}"}
+        assert client.post(url, headers=original).status_code == 403
+        assert client.post(url, headers=admin).status_code == 200
+        assert client.get("/api/v1/profile", headers=original).status_code == 401
+        assert client.post("/api/v1/auth/login", json=credentials).status_code == 401
+
+        login = client.post("/api/v1/auth/login", json={**credentials, "password": "888888"}).json()
+        assert login["password_change_required"]
+        temporary = {"Authorization": f"Bearer {login['access_token']}"}
+        assert client.get("/api/v1/auth/me", headers=temporary).json()["password_change_required"]
+        assert client.get("/api/v1/profile", headers=temporary).status_code == 403
+        assert client.get("/api/v1/admin/ai-config", headers=temporary).status_code == 403
+        assert client.put("/api/v1/auth/password", headers=temporary, json={
+            "current_password": "888888", "new_password": "888888",
+        }).status_code == 422
+        assert client.put("/api/v1/auth/password", headers=temporary, json={
+            "current_password": "888888", "new_password": "654321",
+        }).status_code == 200
+        assert client.get("/api/v1/auth/me", headers=temporary).status_code == 401
+        login = client.post("/api/v1/auth/login", json={**credentials, "password": "654321"}).json()
+        assert not login["password_change_required"]
+        auth = {"Authorization": f"Bearer {login['access_token']}"}
+        assert client.get("/api/v1/profile", headers=auth).status_code == 200
+
+
+def test_admin_ai_configuration():
+    with client, patch.object(get_settings(), "deepseek_api_key", "fallback-test-key"):
+        admin = {"Authorization": f"Bearer {token()}"}
+        url = "/api/v1/admin/ai-config"
+        assert client.get(url, headers=admin).json() == {"configured": True, "source": "environment"}
+        key = "fake-deepseek-key-for-test"
+        result = client.put(url, headers=admin, json={"api_key": key})
+        assert result.status_code == 200
+        assert result.json() == {"configured": True, "source": "admin"}
+        assert client.get(url, headers=admin).json() == result.json()
+        secret = test_path / "storage" / ".private" / "deepseek.key"
+        assert secret.read_text() == key
+        assert client.put(url, headers=admin, json={"api_key": "bad key"}).status_code == 422
+        assert secret.read_text() == key
+        assert client.delete(url, headers=admin).json() == {"configured": True, "source": "environment"}
+        assert not secret.exists()
+
+
+def test_achievement_attachment_retry_and_scoped_listing():
+    with client:
+        admin = {"Authorization": f"Bearer {token()}"}
+        credentials = {"username": "evidence-owner", "password": "a1b2c3"}
+        assert client.post("/api/v1/auth/register", json={**credentials, "name": "佐证测试"}).status_code == 201
+        login = client.post("/api/v1/auth/login", json=credentials).json()
+        auth = {"Authorization": f"Bearer {login['access_token']}"}
+        achievement = client.post("/api/v1/achievements", headers=auth, json={
+            "achievement_type": "教学成果", "category": "课程建设", "title": "课程建设证明", "year": 2026,
+        })
+        item_id = achievement.json()["id"]
+        url = f"/api/v1/achievements/{item_id}/files"
+        upload = {"upload_id": str(uuid4()), "file_category": "证书"}
+        assert client.post(url, headers=auth, data=upload, files={"file": ("invalid.exe", b"invalid")}).status_code == 400
+        content = b"%PDF-1.4 attachment"
+        first = client.post(url, headers=auth, data=upload, files={"file": ("证书.pdf", content)})
+        assert first.status_code == 200, first.text
+        retry = client.post(url, headers=auth, data=upload, files={"file": ("证书.pdf", content)})
+        assert retry.json()["id"] == first.json()["id"]
+        files = client.get("/api/v1/files", headers=auth, params={"achievement_id": item_id}).json()
+        assert len(files) == 1 and files[0]["file_category"] == "证书"
+        assert client.get("/api/v1/files", headers=admin, params={"achievement_id": item_id}).json() == []
+        assert client.get(f"/api/v1/files/{files[0]['id']}/download", headers=auth).content == content
+        assert client.get("/api/v1/admin/ai-config", headers=auth).status_code == 403
 
 
 def test_health_and_core_flow():

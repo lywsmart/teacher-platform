@@ -26,6 +26,7 @@ const router=createRouter({history:createWebHistory(),routes:[
 router.beforeEach(async to => {
   const token = localStorage.getItem('token')
   if (!to.meta.public && !token) return '/login'
+  if (token && localStorage.getItem('password_change_required') && to.path !== '/account') return '/account'
   if (to.path === '/login' && token) return '/'
   if (to.meta.admin) {
     try {

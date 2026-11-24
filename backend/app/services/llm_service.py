@@ -2,6 +2,7 @@ import json
 import httpx
 from fastapi import HTTPException
 from app.core.config import get_settings
+from app.services.ai_config import configured_key
 
 
 SYSTEM_PROMPT = """你是一名熟悉中国高校教师成果与职称申报材料写作的专业助手。
@@ -13,13 +14,14 @@ class LLMService:
         self.settings = get_settings()
 
     async def chat(self, system_prompt: str, user_prompt: str) -> str:
-        if not self.settings.deepseek_api_key:
+        key, _ = configured_key()
+        if not key:
             raise HTTPException(503, "尚未配置 DeepSeek API Key")
         try:
             async with httpx.AsyncClient(timeout=60) as client:
                 response = await client.post(
                     f"{self.settings.deepseek_base_url.rstrip('/')}/chat/completions",
-                    headers={"Authorization": f"Bearer {self.settings.deepseek_api_key}"},
+                    headers={"Authorization": f"Bearer {key}"},
                     json={
                         "model": self.settings.deepseek_model,
                         "temperature": 0.2,

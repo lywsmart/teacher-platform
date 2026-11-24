@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from openpyxl import Workbook, load_workbook
 from sqlalchemy import and_, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -25,9 +26,9 @@ from app.evidence import router as evidence_router
 from app.project_workspace import build_workspace, router as workspace_router, selected_achievement_ids
 from app.materials import ApplicationMaterial, router as material_router
 from app.core.database import Base, SessionLocal, engine, get_db
-from app.core.security import create_token, current_user, verify_password
+from app.core.security import TEMPORARY_PASSWORD, create_token, current_user, verify_password
 from app.models import (AISummary, AISummaryVersion, Achievement, AchievementCategory,
-                        AchievementFile, AchievementLevel, BackupRecord,
+                        AchievementFile, AchievementLevel, AchievementUploadReceipt, BackupRecord,
                         TitleApplication, TitleApplicationCategory,
                         TitleApplicationItem, TitleRequirementRule, User)
 from app.schemas import (AchievementIn, AchievementOut, LoginIn, ProfileUpdate,
@@ -35,11 +36,11 @@ from app.schemas import (AchievementIn, AchievementOut, LoginIn, ProfileUpdate,
                          TitleApplicationIn, TitleCategoryIn, TitleItemIn)
 from app.seed import seed
 from app.services.llm_service import LLMService, SYSTEM_PROMPT
-from app.services.storage_service import StorageService
+from app.services.storage_service import ALLOWED_EXTENSIONS, StorageService
 
 
 settings = get_settings()
-app = FastAPI(title=settings.app_name, version="2.2.0")
+app = FastAPI(title=settings.app_name, version="2.3.0")
 app.include_router(account_router)
 app.include_router(material_router)
 app.include_router(award_router)
@@ -66,7 +67,10 @@ def login(payload: LoginIn, db: Session = Depends(get_db)):
     user = db.scalar(select(User).where(User.username == payload.username.strip().lower()))
     if not user or not user.is_active or not verify_password(payload.password, user.password_hash):
         raise HTTPException(401, "用户名或密码错误")
-    return {"access_token": create_token(user.id, user.password_hash), "token_type": "bearer", "user": {"id": user.id, "name": user.name, "username": user.username}}
+    password_change_required = payload.password == TEMPORARY_PASSWORD
+    return {"access_token": create_token(user.id, user.password_hash, password_change_required),
+            "token_type": "bearer", "password_change_required": password_change_required,
+            "user": {"id": user.id, "name": user.name, "username": user.username}}
 
 
 @app.get("/api/v1/profile")
@@ -193,8 +197,15 @@ async def import_achievements(file: UploadFile = File(...), user=Depends(current
 
 
 @app.post("/api/v1/achievements/{item_id}/files")
-async def upload_file(item_id: int, file_category: str = Form("其他"), file: UploadFile = File(...), user=Depends(current_user), db: Session = Depends(get_db)):
+async def upload_file(item_id: int, file_category: str = Form("其他"), file: UploadFile = File(...),
+                      upload_id: Optional[uuid.UUID] = Form(None), user=Depends(current_user),
+                      db: Session = Depends(get_db)):
     item = owned_achievement(item_id, user.id, db)
+    receipt_key = (item_id, str(upload_id)) if upload_id else None
+    if receipt_key:
+        receipt = db.get(AchievementUploadReceipt, receipt_key)
+        if receipt:
+            return db.get(AchievementFile, receipt.file_id)
     name = Path((file.filename or "").replace("\\", "/")).name
     if not 1 <= len(name) <= 255 or any(ord(char) < 32 for char in name) or len(file_category) > 64:
         raise HTTPException(422, "文件名或类别无效")
@@ -203,21 +214,29 @@ async def upload_file(item_id: int, file_category: str = Form("其他"), file: U
     record = AchievementFile(achievement_id=item.id, original_name=name, stored_name=stored, file_path=relative, file_type=extension, file_size=size, file_category=file_category)
     try:
         db.add(record)
+        if receipt_key:
+            db.flush()
+            db.add(AchievementUploadReceipt(achievement_id=item_id, upload_id=str(upload_id), file_id=record.id))
         db.commit()
-    except Exception:
+    except Exception as exc:
         db.rollback()
         storage.resolve(relative).unlink(missing_ok=True)
+        if receipt_key and isinstance(exc, IntegrityError):
+            receipt = db.get(AchievementUploadReceipt, receipt_key)
+            if receipt:
+                return db.get(AchievementFile, receipt.file_id)
         raise
     db.refresh(record)
     return {c.name: getattr(record, c.name) for c in AchievementFile.__table__.columns}
 
 
 @app.get("/api/v1/files")
-def list_files(year: Optional[int] = None, achievement_type: Optional[str] = None, file_category: Optional[str] = None, keyword: Optional[str] = None, user=Depends(current_user), db: Session = Depends(get_db)):
+def list_files(year: Optional[int] = None, achievement_type: Optional[str] = None, file_category: Optional[str] = None, keyword: Optional[str] = None, achievement_id: Optional[int] = None, user=Depends(current_user), db: Session = Depends(get_db)):
     query = select(AchievementFile, Achievement).join(Achievement).where(Achievement.user_id == user.id, Achievement.deleted_at.is_(None), AchievementFile.deleted_at.is_(None))
     if year: query = query.where(Achievement.year == year)
     if achievement_type: query = query.where(Achievement.achievement_type == achievement_type)
     if file_category: query = query.where(AchievementFile.file_category == file_category)
+    if achievement_id is not None: query = query.where(AchievementFile.achievement_id == achievement_id)
     if keyword: query = query.where(or_(AchievementFile.original_name.like(f"%{keyword}%"), Achievement.title.like(f"%{keyword}%")))
     return [{"id": f.id, "original_name": f.original_name, "file_type": f.file_type, "file_size": f.file_size, "file_category": f.file_category, "uploaded_at": f.uploaded_at, "achievement_id": a.id, "achievement_title": a.title, "year": a.year, "achievement_type": a.achievement_type} for f, a in db.execute(query).all()]
 
@@ -245,7 +264,8 @@ def options(user=Depends(current_user), db: Session = Depends(get_db)):
     categories = db.scalars(select(AchievementCategory).where(AchievementCategory.enabled == True).order_by(AchievementCategory.sort_order)).all()
     levels = db.scalars(select(AchievementLevel).where(AchievementLevel.enabled == True).order_by(AchievementLevel.sort_order)).all()
     parents = [c for c in categories if c.parent_id is None]
-    return {"categories": [{"name": p.name, "children": [c.name for c in categories if c.parent_id == p.id]} for p in parents], "levels": [x.name for x in levels]}
+    return {"categories": [{"name": p.name, "children": [c.name for c in categories if c.parent_id == p.id]} for p in parents], "levels": [x.name for x in levels],
+            "upload": {"extensions": sorted(ALLOWED_EXTENSIONS), "max_mb": settings.max_upload_mb}}
 
 
 def dashboard_data(user_id, db):

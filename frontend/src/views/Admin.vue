@@ -5,6 +5,7 @@ import { api, errorMessage } from '../api'
 import AdminEvidence from './AdminEvidence.vue'
 import AdminProjectScores from './AdminProjectScores.vue'
 import Settings from './Settings.vue'
+import AdminAIConfig from './AdminAIConfig.vue'
 
 type User = { id: number; username: string; name: string; college: string; is_active: boolean; is_admin: boolean }
 const users = ref<User[]>([])
@@ -31,10 +32,9 @@ async function create() {
   finally { creating.value = false }
 }
 
-async function update(user: User, newPassword?: string) {
+async function update(user: User) {
   try {
-    const payload = newPassword ? { password: newPassword } : { is_active: !user.is_active }
-    const { data } = await api.patch(`/admin/users/${user.id}`, payload)
+    const { data } = await api.patch(`/admin/users/${user.id}`, { is_active: !user.is_active })
     Object.assign(user, data)
     ElMessage.success('账号已更新')
   } catch (error) { ElMessage.error(errorMessage(error)) }
@@ -42,11 +42,14 @@ async function update(user: User, newPassword?: string) {
 
 async function reset(user: User) {
   try {
-    const result = await ElMessageBox.prompt('请输入至少 12 位的新密码', `重置 ${user.username} 的密码`, {
-      inputType: 'password', inputPattern: /^.{12,128}$/, inputErrorMessage: '密码需为 12–128 位',
+    await ElMessageBox.confirm('重置后，现有登录将失效。教师使用临时密码 888888 登录后需修改密码。', `重置 ${user.username} 的密码`, {
+      type: 'warning', confirmButtonText: '确认重置', cancelButtonText: '取消',
     })
-    await update(user, result.value)
-  } catch { /* User canceled. */ }
+  } catch { return }
+  try {
+    await api.post(`/admin/users/${user.id}/reset-password`)
+    ElMessage.success('密码已重置为 888888')
+  } catch (error) { ElMessage.error(errorMessage(error)) }
 }
 onMounted(() => load())
 </script>
@@ -60,8 +63,8 @@ onMounted(() => load())
           <el-input v-model="form.username" aria-label="账号" placeholder="账号" autocomplete="off" style="width:155px" />
           <el-input v-model="form.name" aria-label="姓名" placeholder="姓名" style="width:140px" />
           <el-input v-model="form.college" aria-label="院系" placeholder="院系（可选）" style="width:160px" />
-          <el-input v-model="form.password" aria-label="初始密码" type="password" placeholder="初始密码（至少 12 位）" autocomplete="new-password" style="width:210px" />
-          <el-button native-type="submit" type="primary" :loading="creating" :disabled="!form.name.trim() || form.username.length < 3 || form.password.length < 12">开通账号</el-button>
+          <el-input v-model="form.password" aria-label="初始密码" maxlength="128" type="password" placeholder="初始密码（至少 6 位）" autocomplete="new-password" style="width:210px" />
+          <el-button native-type="submit" type="primary" :loading="creating" :disabled="!form.name.trim() || form.username.length < 3 || [...form.password].length < 6">开通账号</el-button>
         </el-form>
         <el-table :data="users">
           <el-table-column prop="username" label="账号" />
@@ -83,6 +86,7 @@ onMounted(() => load())
     </el-tab-pane>
     <el-tab-pane label="佐证材料" lazy><AdminEvidence /></el-tab-pane>
     <el-tab-pane label="申报计分审核" lazy><AdminProjectScores /></el-tab-pane>
+    <el-tab-pane label="AI 配置" lazy><AdminAIConfig /></el-tab-pane>
     <el-tab-pane label="系统备份与设置" lazy><Settings /></el-tab-pane>
   </el-tabs>
 </template>

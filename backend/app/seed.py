@@ -29,8 +29,8 @@ def seed(db: Session):
             raise RuntimeError("无法识别旧版管理员，请检查用户角色配置")
         if user is None:
             password = get_settings().bootstrap_admin_password
-            if len(password) < 12:
-                raise RuntimeError("首次启动请设置至少 12 位的 BOOTSTRAP_ADMIN_PASSWORD")
+            if len(password) < 6:
+                raise RuntimeError("首次启动请设置至少 6 位的 BOOTSTRAP_ADMIN_PASSWORD")
             user = User(username="admin", password_hash=hash_password(password), name="系统管理员")
             db.add(user)
             db.flush()

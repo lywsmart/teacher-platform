@@ -2,11 +2,12 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Document, House, Medal, Setting, User } from '@element-plus/icons-vue'
-import { api } from './api'
+import { api, clearSession } from './api'
 
 const route = useRoute()
 const router = useRouter()
 const isLogin = computed(() => route.path === '/login')
+const passwordRequired = computed(() => route.path === '/account' && Boolean(localStorage.getItem('password_change_required')))
 const account = ref<{ name: string; is_admin: boolean }>()
 const menu = [
   ['/', '工作台', House], ['/achievements', '成果库', Medal], ['/titles', '职称申报', Document],
@@ -30,13 +31,20 @@ watch(isLogin, async login => {
 }, { immediate: true })
 
 function logout() {
-  localStorage.removeItem('token')
+  clearSession()
   router.push('/login')
 }
 </script>
 
 <template>
   <router-view v-if="isLogin" />
+  <main v-else-if="passwordRequired" class="password-gate">
+    <div>
+      <h2>修改临时密码</h2>
+      <router-view />
+      <el-button link type="primary" @click="logout">退出登录</el-button>
+    </div>
+  </main>
   <div v-else class="shell">
     <aside class="sidebar">
       <div class="brand"><div class="brand-mark">职</div><b>教师职称材料管理</b></div>
@@ -78,3 +86,9 @@ function logout() {
     </main>
   </div>
 </template>
+<style scoped>
+.password-gate { min-height: 100dvh; display: grid; place-items: center; padding: 24px; }
+.password-gate > div { width: min(100%, 500px); }
+.password-gate .el-button { margin-top: 12px; }
+:global(body:has(.password-gate)) { min-width: 0; }
+</style>
