@@ -10,6 +10,7 @@ from app.admin import require_admin
 from app.core.database import Base, get_db
 from app.materials import ApplicationMaterial
 from app.models import Achievement, AchievementFile, TimestampMixin, TitleApplication, User
+from app.project_access import active_project
 from app.services.storage_service import StorageService
 
 Kind = Literal["achievement", "application"]
@@ -35,7 +36,8 @@ def evidence_query(kind: Kind):
     if kind == "application":
         return (select(ApplicationMaterial, TitleApplication, User)
                 .join(TitleApplication, ApplicationMaterial.application_id == TitleApplication.id)
-                .join(User, TitleApplication.user_id == User.id)), ApplicationMaterial
+                .join(User, TitleApplication.user_id == User.id)
+                .where(active_project())), ApplicationMaterial
     return (select(AchievementFile, Achievement, User)
             .join(Achievement, AchievementFile.achievement_id == Achievement.id)
             .join(User, Achievement.user_id == User.id)

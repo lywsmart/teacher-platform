@@ -21,6 +21,17 @@ const childPages: Record<string, { parent: string; title: string }> = {
   '/ai': { parent: '/annual', title: 'AI 成果总结' },
 }
 const activePage = computed(() => childPages[route.path]?.parent || route.path)
+const navigationGroups: Record<string, { label: string; links: [string, string][] }> = {
+  '/achievements': {
+    label: '成果库导航',
+    links: [['/achievements', '全部成果'], ['/awards', '获奖模板'], ['/files', '查找附件']],
+  },
+  '/annual': {
+    label: '年度档案导航',
+    links: [['/annual', '年度档案'], ['/analytics', '成果分析'], ['/ai', 'AI 成果总结']],
+  },
+}
+const sectionNavigation = computed(() => navigationGroups[activePage.value])
 const pageTitle = computed(() => childPages[route.path]?.title || menu.find(item => item[0] === route.path)?.[1]
   || (route.path === '/admin' ? '后台管理' : '账号安全'))
 
@@ -71,15 +82,10 @@ function logout() {
         </el-dropdown>
       </header>
       <section class="page">
-        <nav v-if="activePage === '/achievements'" class="toolbar">
-          <router-link to="/achievements">全部成果</router-link>
-          <router-link to="/awards">获奖模板</router-link>
-          <router-link to="/files">查找附件</router-link>
-        </nav>
-        <nav v-if="activePage === '/annual'" class="toolbar">
-          <router-link to="/annual">年度档案</router-link>
-          <router-link to="/analytics">成果分析</router-link>
-          <router-link to="/ai">AI 成果总结</router-link>
+        <nav v-if="sectionNavigation" :aria-label="sectionNavigation.label" class="section-nav">
+          <router-link v-for="[path, label] in sectionNavigation.links" :key="path" :to="path">
+            {{ label }}
+          </router-link>
         </nav>
         <router-view />
       </section>
@@ -87,6 +93,40 @@ function logout() {
   </div>
 </template>
 <style scoped>
+.section-nav {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: 100%;
+  margin-bottom: 20px;
+  padding: 4px;
+  border: 1px solid #d6e4f7;
+  border-radius: 12px;
+  background: #e5eefb;
+}
+.section-nav a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: #395577;
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+}
+.section-nav a:hover { color: #134790; background: #edf5ff; }
+.section-nav a[aria-current="page"] {
+  color: #124c9f;
+  font-weight: 650;
+  background: #f7fbff;
+  border-color: #cbdcf3;
+  box-shadow: 0 1px 2px #10284c10;
+}
+.section-nav a:focus-visible { outline: 2px solid #175cce; outline-offset: -2px; }
+
 .password-gate { min-height: 100dvh; display: grid; place-items: center; padding: 24px; }
 .password-gate > div { width: min(100%, 500px); }
 .password-gate .el-button { margin-top: 12px; }

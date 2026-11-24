@@ -13,12 +13,13 @@ from sqlalchemy import Boolean, ForeignKey, JSON, String, delete, select
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from app.admin import require_admin
-from app.awards import AwardApplication, AwardDetail, TEMPLATES, append_text, get_project
+from app.awards import AwardApplication, AwardDetail, TEMPLATES, append_text
 from app.core.database import Base, get_db
 from app.core.security import current_user
 from app.evidence import EvidenceReview, review_info
 from app.materials import ApplicationMaterial
 from app.models import Achievement, AchievementFile, TimestampMixin, TitleApplication, TitleApplicationCategory, TitleApplicationItem, User
+from app.project_access import active_project, get_project
 from app.services.storage_service import StorageService
 
 router = APIRouter(prefix="/api/v1/title-applications")
@@ -113,7 +114,7 @@ def file_dict(file, review, application=False):
 
 @router.get("/workspace/overview")
 def project_overview(user: User = Depends(current_user), db: Session = Depends(get_db)):
-    projects = db.scalars(select(TitleApplication).where(TitleApplication.user_id == user.id)
+    projects = db.scalars(select(TitleApplication).where(TitleApplication.user_id == user.id, active_project())
                           .order_by(TitleApplication.year.desc(), TitleApplication.id.desc()).limit(10)).all()
     items = []
     for project in projects:
@@ -251,7 +252,7 @@ def public_workspace(result):
 
 @router.get("/workspace/admin/projects", dependencies=[Depends(require_admin)])
 def audit_projects(username: str = "", db: Session = Depends(get_db)):
-    query = select(TitleApplication, User).join(User, TitleApplication.user_id == User.id)
+    query = select(TitleApplication, User).join(User, TitleApplication.user_id == User.id).where(active_project())
     if username.strip():
         query = query.where(User.username == username.strip().lower())
     rows = db.execute(query.order_by(TitleApplication.id.desc()).limit(50))
@@ -261,7 +262,7 @@ def audit_projects(username: str = "", db: Session = Depends(get_db)):
 
 @router.get("/{project_id}/workspace/audit", dependencies=[Depends(require_admin)])
 def audit_workspace(project_id: int, db: Session = Depends(get_db)):
-    project = db.get(TitleApplication, project_id)
+    project = db.scalar(select(TitleApplication).where(TitleApplication.id == project_id, active_project()))
     if not project:
         raise HTTPException(404, "申报项目不存在")
     return public_workspace(build_workspace(db, project))
@@ -323,7 +324,7 @@ def remove_item(project_id: int, achievement_id: int, user: User = Depends(curre
 @router.put("/{project_id}/workspace/items/{achievement_id}/score")
 def audit_score(project_id: int, achievement_id: int, payload: ScoreInput,
                 admin: User = Depends(require_admin), db: Session = Depends(get_db)):
-    project = db.get(TitleApplication, project_id)
+    project = db.scalar(select(TitleApplication).where(TitleApplication.id == project_id, active_project()))
     if project is None:
         raise HTTPException(404, "申报项目不存在")
     row = next((row for row in build_workspace(db, project)["rows"] if row["id"] == achievement_id and not row["deleted"]), None)

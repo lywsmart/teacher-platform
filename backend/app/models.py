@@ -133,6 +133,12 @@ class TitleApplication(Base, TimestampMixin):
     remark: Mapped[Optional[str]] = mapped_column(Text)
 
 
+class DeletedTitleApplication(Base):
+    __tablename__ = "deleted_title_applications"
+    project_id: Mapped[int] = mapped_column(ForeignKey("title_applications.id"), primary_key=True)
+    deleted_at: Mapped[datetime] = mapped_column(DateTime, default=now, index=True)
+
+
 class TitleApplicationCategory(Base, TimestampMixin):
     __tablename__ = "title_application_categories"
     id: Mapped[int] = mapped_column(primary_key=True)

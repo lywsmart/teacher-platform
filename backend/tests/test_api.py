@@ -122,6 +122,44 @@ def test_health_and_core_flow():
         assert client.delete(f"/api/v1/achievements/{item_id}", headers=headers).status_code == 200
 
 
+def test_deleted_project_can_be_restored_with_materials_and_exports():
+    with client:
+        admin = {"Authorization": f"Bearer {token()}"}
+        credentials = {"username": "project-recovery", "password": "a1b2c3"}
+        assert client.post("/api/v1/auth/register", json={**credentials, "name": "恢复测试"}).status_code == 201
+        auth = {"Authorization": "Bearer " + client.post("/api/v1/auth/login", json=credentials).json()["access_token"]}
+        collection = "/api/v1/title-applications"
+        project = client.post(collection, headers=auth, json={"name": "待恢复项目", "year": 2027, "target_title": "副教授"}).json()
+        project_id = project["id"]
+        url = f"{collection}/{project_id}"
+        achievement = client.post("/api/v1/achievements", headers=auth, json={
+            "achievement_type": "教学成果", "category": "课程建设", "title": "仍然保留的成果", "year": 2026,
+        }).json()["id"]
+        assert client.put(f"{url}/workspace/items/{achievement}", headers=auth, json={}).status_code == 200
+        body = b"%PDF-1.4 test material"
+        material = client.post(url + "/materials", headers=auth, data={"category": "学历学位与任职资历"},
+                               files={"file": ("证明.pdf", body)}).json()["id"]
+        snapshot = client.post(url + "/workspace/exports", headers=auth, json={"mode": "draft"}).json()["id"]
+        assert client.get(url + "/deletion-impact", headers=auth).json() == {"materials": 1, "exports": 1}
+        assert client.delete(url, headers=admin).status_code == 404
+        for _ in range(2):
+            assert client.delete(url, headers=auth).status_code == 204
+        assert client.get(collection, headers=auth).json() == []
+        assert client.get(collection, headers=admin, params={"deleted": True}).json() == []
+        assert client.get(collection, headers=auth, params={"deleted": True}).json()[0]["id"] == project_id
+        for path in (url, url + "/workspace", f"{url}/materials/{material}", f"{url}/workspace/exports/{snapshot}"):
+            assert client.get(path, headers=auth).status_code == 404
+        assert client.get(url + "/workspace/audit", headers=admin).status_code == 404
+        assert client.get(f"/api/v1/admin/evidence/application/{material}/download", headers=admin).status_code == 404
+        assert client.get(f"/api/v1/achievements/{achievement}", headers=auth).status_code == 200
+        assert client.post(url + "/restore", headers=admin).status_code == 404
+        assert client.post(url + "/restore", headers=auth).json()["id"] == project_id
+        assert client.get(collection, headers=auth, params={"deleted": True}).json() == []
+        assert client.get(url + "/workspace", headers=auth).json()["rows"][0]["id"] == achievement
+        assert client.get(f"{url}/materials/{material}", headers=auth).content == body
+        assert client.get(f"{url}/workspace/exports/{snapshot}", headers=auth).status_code == 200
+
+
 def test_teacher_material_ownership_and_admin_controls():
     with client:
         admin = {"Authorization": f"Bearer {token()}"}

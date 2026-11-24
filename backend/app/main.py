@@ -6,7 +6,7 @@ import tempfile
 import uuid
 import zipfile
 from collections import Counter, defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -15,7 +15,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFi
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from openpyxl import Workbook, load_workbook
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -23,12 +23,13 @@ from app.core.config import get_settings
 from app.admin import router as account_router, require_admin
 from app.awards import AwardDetail, router as award_router
 from app.evidence import router as evidence_router
-from app.project_workspace import build_workspace, router as workspace_router, selected_achievement_ids
+from app.project_access import active_project, get_project
+from app.project_workspace import ProjectExport, build_workspace, router as workspace_router, selected_achievement_ids
 from app.materials import ApplicationMaterial, router as material_router
 from app.core.database import Base, SessionLocal, engine, get_db
 from app.core.security import TEMPORARY_PASSWORD, create_token, current_user, verify_password
 from app.models import (AISummary, AISummaryVersion, Achievement, AchievementCategory,
-                        AchievementFile, AchievementLevel, AchievementUploadReceipt, BackupRecord,
+                        AchievementFile, AchievementLevel, AchievementUploadReceipt, BackupRecord, DeletedTitleApplication,
                         TitleApplication, TitleApplicationCategory,
                         TitleApplicationItem, TitleRequirementRule, User)
 from app.schemas import (AchievementIn, AchievementOut, LoginIn, ProfileUpdate,
@@ -40,7 +41,7 @@ from app.services.storage_service import ALLOWED_EXTENSIONS, StorageService
 
 
 settings = get_settings()
-app = FastAPI(title=settings.app_name, version="2.3.0")
+app = FastAPI(title=settings.app_name, version="2.4.0")
 app.include_router(account_router)
 app.include_router(material_router)
 app.include_router(award_router)
@@ -313,8 +314,16 @@ DEFAULT_TITLE_DIRS = ["基本情况", "学历学位", "现任专业技术资格"
 
 
 @app.get("/api/v1/title-applications")
-def list_apps(user=Depends(current_user), db: Session = Depends(get_db)):
-    return db.scalars(select(TitleApplication).where(TitleApplication.user_id == user.id).order_by(TitleApplication.year.desc())).all()
+def list_apps(deleted: bool = False, user=Depends(current_user), db: Session = Depends(get_db)):
+    base = select(TitleApplication).where(TitleApplication.user_id == user.id)
+    if deleted:
+        query = base.add_columns(DeletedTitleApplication.deleted_at).join(DeletedTitleApplication).order_by(
+            DeletedTitleApplication.deleted_at.desc(), TitleApplication.id.desc()
+        )
+        return [{"id": project.id, "name": project.name, "year": project.year,
+                 "target_title": project.target_title, "deleted_at": deleted_at.replace(tzinfo=timezone.utc)}
+                for project, deleted_at in db.execute(query)]
+    return db.scalars(base.where(active_project()).order_by(TitleApplication.year.desc(), TitleApplication.id.desc())).all()
 
 
 @app.post("/api/v1/title-applications")
@@ -324,15 +333,49 @@ def create_app(payload: TitleApplicationIn, user=Depends(current_user), db: Sess
     db.commit(); db.refresh(item); return item
 
 
-def owned_application(app_id, user_id, db):
-    item = db.scalar(select(TitleApplication).where(TitleApplication.id == app_id, TitleApplication.user_id == user_id))
-    if not item: raise HTTPException(404, "职称申报项目不存在")
-    return item
+@app.get("/api/v1/title-applications/{app_id}/deletion-impact")
+def deletion_impact(app_id: int, user=Depends(current_user), db: Session = Depends(get_db)):
+    get_project(app_id, user, db)
+    return {
+        "materials": db.scalar(select(func.count()).select_from(ApplicationMaterial).where(
+            ApplicationMaterial.application_id == app_id)),
+        "exports": db.scalar(select(func.count()).select_from(ProjectExport).where(ProjectExport.project_id == app_id)),
+    }
+
+
+@app.delete("/api/v1/title-applications/{app_id}", status_code=204)
+def delete_project(app_id: int, user=Depends(current_user), db: Session = Depends(get_db)):
+    owned = db.scalar(select(TitleApplication.id).where(
+        TitleApplication.id == app_id, TitleApplication.user_id == user.id,
+    ))
+    if owned is None:
+        raise HTTPException(404, "申报项目不存在")
+    if db.get(DeletedTitleApplication, app_id) is None:
+        db.add(DeletedTitleApplication(project_id=app_id))
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            if db.get(DeletedTitleApplication, app_id) is None:
+                raise
+
+
+@app.post("/api/v1/title-applications/{app_id}/restore")
+def restore_project(app_id: int, user=Depends(current_user), db: Session = Depends(get_db)):
+    project = db.scalar(select(TitleApplication).where(
+        TitleApplication.id == app_id, TitleApplication.user_id == user.id,
+    ))
+    if project is None:
+        raise HTTPException(404, "申报项目不存在")
+    db.execute(delete(DeletedTitleApplication).where(DeletedTitleApplication.project_id == app_id))
+    db.commit()
+    db.refresh(project)
+    return project
 
 
 @app.get("/api/v1/title-applications/{app_id}")
 def app_detail(app_id: int, user=Depends(current_user), db: Session = Depends(get_db)):
-    item = owned_application(app_id, user.id, db)
+    item = get_project(app_id, user, db)
     cats = db.scalars(select(TitleApplicationCategory).where(TitleApplicationCategory.application_id == app_id).order_by(TitleApplicationCategory.sort_order)).all()
     workspace = build_workspace(db, item)
     links = [{"link": {"category_id": row["data"]["category_id"], "achievement_id": row["id"]},
@@ -352,12 +395,12 @@ def app_detail(app_id: int, user=Depends(current_user), db: Session = Depends(ge
 
 @app.post("/api/v1/title-applications/{app_id}/categories")
 def add_title_category(app_id: int, payload: TitleCategoryIn, user=Depends(current_user), db: Session = Depends(get_db)):
-    owned_application(app_id, user.id, db); item = TitleApplicationCategory(application_id=app_id, **payload.model_dump()); db.add(item); db.commit(); db.refresh(item); return item
+    get_project(app_id, user, db); item = TitleApplicationCategory(application_id=app_id, **payload.model_dump()); db.add(item); db.commit(); db.refresh(item); return item
 
 
 @app.post("/api/v1/title-applications/{app_id}/items")
 def add_title_item(app_id: int, payload: TitleItemIn, user=Depends(current_user), db: Session = Depends(get_db)):
-    owned_application(app_id, user.id, db); owned_achievement(payload.achievement_id, user.id, db)
+    get_project(app_id, user, db); owned_achievement(payload.achievement_id, user.id, db)
     cat = db.scalar(select(TitleApplicationCategory).where(TitleApplicationCategory.id == payload.category_id, TitleApplicationCategory.application_id == app_id))
     if not cat: raise HTTPException(400, "材料目录无效")
     item = TitleApplicationItem(application_id=app_id, **payload.model_dump()); db.add(item)
@@ -368,19 +411,19 @@ def add_title_item(app_id: int, payload: TitleItemIn, user=Depends(current_user)
 
 @app.delete("/api/v1/title-applications/{app_id}/items/{item_id}")
 def remove_title_item(app_id: int, item_id: int, user=Depends(current_user), db: Session = Depends(get_db)):
-    owned_application(app_id, user.id, db); item = db.scalar(select(TitleApplicationItem).where(TitleApplicationItem.id == item_id, TitleApplicationItem.application_id == app_id))
+    get_project(app_id, user, db); item = db.scalar(select(TitleApplicationItem).where(TitleApplicationItem.id == item_id, TitleApplicationItem.application_id == app_id))
     if not item: raise HTTPException(404, "关联不存在")
     db.delete(item); db.commit(); return {"message": "已移除关联，原成果仍保留"}
 
 
 @app.post("/api/v1/title-applications/{app_id}/requirements")
 def add_requirement(app_id: int, payload: RequirementIn, user=Depends(current_user), db: Session = Depends(get_db)):
-    owned_application(app_id, user.id, db); item = TitleRequirementRule(application_id=app_id, **payload.model_dump()); db.add(item); db.commit(); db.refresh(item); return item
+    get_project(app_id, user, db); item = TitleRequirementRule(application_id=app_id, **payload.model_dump()); db.add(item); db.commit(); db.refresh(item); return item
 
 
 @app.get("/api/v1/title-applications/{app_id}/zip")
 def title_zip(app_id: int, user=Depends(current_user), db: Session = Depends(get_db)):
-    project = owned_application(app_id, user.id, db)
+    project = get_project(app_id, user, db)
     workspace = build_workspace(db, project)
     storage = StorageService()
     stream = io.BytesIO()
@@ -411,7 +454,7 @@ async def generate_summary(payload: SummaryGenerateIn, user=Depends(current_user
     if payload.achievement_ids: query = query.where(Achievement.id.in_(payload.achievement_ids))
     if payload.category: query = query.where(or_(Achievement.category == payload.category, Achievement.achievement_type == payload.category))
     if payload.title_application_id:
-        owned_application(payload.title_application_id, user.id, db)
+        get_project(payload.title_application_id, user, db)
         linked = selected_achievement_ids(db, payload.title_application_id)
         query = query.where(Achievement.id.in_(linked))
     items = db.scalars(query.order_by(Achievement.year)).all()

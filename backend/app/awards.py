@@ -12,7 +12,8 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 from app.core.database import Base, get_db
 from app.core.security import current_user
 from app.evidence import EvidenceReview, review_info
-from app.models import Achievement, AchievementFile, TitleApplication, User
+from app.models import Achievement, AchievementFile, User
+from app.project_access import get_project
 
 router = APIRouter(prefix="/api/v1/awards")
 Kind = Literal["honor", "teacher_contest", "student_contest", "teaching_award", "research_award"]
@@ -80,13 +81,6 @@ def get_award(award_id, user, db):
     if not row:
         raise HTTPException(404, "获奖记录不存在")
     return row
-
-
-def get_project(project_id, user, db):
-    project = db.get(TitleApplication, project_id)
-    if project is None or project.user_id != user.id:
-        raise HTTPException(404, "申报项目不存在")
-    return project
 
 
 @router.get("/templates")

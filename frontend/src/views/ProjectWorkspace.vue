@@ -132,8 +132,12 @@ async function exportPackage(mode: 'draft' | 'package') {
 </script>
 
 <template>
-  <section v-if="state" class="panel" v-loading="busy && !editing">
-    <h3>{{ project.name }} · {{ project.year }} 年 {{ project.target_title }}</h3>
+  <section class="panel" v-loading="busy && !editing">
+    <div class="project-heading">
+      <h3>{{ project.name }} · {{ project.year }} 年 · {{ project.target_title }}</h3>
+      <slot name="actions" />
+    </div>
+    <template v-if="state">
     <div class="toolbar">
       <el-select v-model="settings.review_type" placeholder="选择评审类型" style="width:190px">
         <el-option v-for="type in reviewTypes" :key="type" :value="type" />
@@ -234,6 +238,8 @@ async function exportPackage(mode: 'draft' | 'package') {
         </el-table>
       </el-tab-pane>
     </el-tabs>
+    </template>
+    <el-empty v-else-if="!busy" description="暂时无法加载申报工作台" />
   </section>
   <el-dialog :model-value="!!editing" :title="editing?.title || '核对成果'" width="min(95vw, 720px)" @close="editing = undefined">
     <el-form v-if="editing && form" label-position="top" @submit.prevent="save">
@@ -268,5 +274,7 @@ async function exportPackage(mode: 'draft' | 'package') {
 </template>
 
 <style scoped>
+.project-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.project-heading h3 { margin: 0; overflow-wrap: anywhere; }
 .export-preview { padding: 8px 0; border-bottom: 1px solid var(--line); }
 </style>

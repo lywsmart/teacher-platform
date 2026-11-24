@@ -7,7 +7,8 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from app.core.database import Base, get_db
 from app.core.security import current_user
-from app.models import TimestampMixin, TitleApplication, User
+from app.models import TimestampMixin, User
+from app.project_access import get_project
 from app.services.storage_service import StorageService
 
 router = APIRouter(prefix="/api/v1/title-applications")
@@ -29,12 +30,6 @@ class ApplicationMaterial(Base, TimestampMixin):
     size: Mapped[int] = mapped_column()
 
 
-def check_owner(application_id: int, user: User, db: Session):
-    application = db.get(TitleApplication, application_id)
-    if application is None or application.user_id != user.id:
-        raise HTTPException(404, "申报项目不存在")
-
-
 def material_info(item: ApplicationMaterial):
     return {"id": item.id, "category": item.category, "name": item.name,
             "size": item.size, "created_at": item.created_at}
@@ -44,7 +39,7 @@ def material_info(item: ApplicationMaterial):
 def list_materials(application_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
     from app.evidence import EvidenceReview, review_info
 
-    check_owner(application_id, user, db)
+    get_project(application_id, user, db)
     items = db.execute(select(ApplicationMaterial, EvidenceReview).outerjoin(
         EvidenceReview, (EvidenceReview.kind == "application") & (EvidenceReview.file_id == ApplicationMaterial.id)
     ).where(
@@ -57,7 +52,7 @@ def list_materials(application_id: int, user: User = Depends(current_user), db: 
 @router.post("/{application_id}/materials", status_code=201)
 async def upload_material(application_id: int, category: str = Form(...), file: UploadFile = File(...),
                           user: User = Depends(current_user), db: Session = Depends(get_db)):
-    check_owner(application_id, user, db)
+    get_project(application_id, user, db)
     if category not in MATERIAL_CATEGORIES:
         raise HTTPException(422, "请选择有效的材料类别")
     name = Path((file.filename or "").replace("\\", "/")).name
@@ -79,7 +74,7 @@ async def upload_material(application_id: int, category: str = Form(...), file: 
 @router.get("/{application_id}/materials/{material_id}")
 def download_material(application_id: int, material_id: int,
                       user: User = Depends(current_user), db: Session = Depends(get_db)):
-    check_owner(application_id, user, db)
+    get_project(application_id, user, db)
     item = db.get(ApplicationMaterial, material_id)
     if item is None or item.application_id != application_id:
         raise HTTPException(404, "材料不存在")
