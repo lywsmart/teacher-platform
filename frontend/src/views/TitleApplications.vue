@@ -1,12 +1,58 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { api, download } from '../api'
-const apps=ref<any[]>([]),detail=ref<any>(),dialog=ref(false)
-const form=reactive({name:'',year:new Date().getFullYear()+1,target_title:'副教授',status:'准备中',start_date:null,remark:''})
-async function load(){apps.value=(await api.get('/title-applications')).data}
-async function create(){const {data}=await api.post('/title-applications',form);dialog.value=false;ElMessage.success('项目及默认目录已创建');await load();await open(data)}
-async function open(row:any){detail.value=(await api.get(`/title-applications/${row.id}`)).data}
-onMounted(load)
+import { useRoute } from 'vue-router'
+import { api, errorMessage } from '../api'
+import ProjectWorkspace from './ProjectWorkspace.vue'
+
+type Project = { id: number; name: string; year: number; target_title: string; status: string }
+const projects = ref<Project[]>([])
+const selected = ref<Project>()
+const dialog = ref(false)
+const busy = ref(false)
+const route = useRoute()
+const form = reactive({ name: '', year: new Date().getFullYear(), target_title: '副教授', status: '准备中' })
+
+onMounted(async () => {
+  try {
+    projects.value = (await api.get('/title-applications')).data
+    selected.value = projects.value.find(project => String(project.id) === route.query.project) || projects.value[0]
+  } catch (error) { ElMessage.error(errorMessage(error)) }
+})
+
+async function create() {
+  busy.value = true
+  try {
+    const { data } = await api.post('/title-applications', form)
+    projects.value.unshift(data)
+    selected.value = data
+    dialog.value = false
+    form.name = ''
+  } catch (error) { ElMessage.error(errorMessage(error)) }
+  finally { busy.value = false }
+}
 </script>
-<template><div class="toolbar"><div class="spacer"/><el-button type="primary" @click="dialog=true">+ 新建职称申报</el-button></div><div v-if="apps.length" class="title-layout"><div class="panel app-list"><div v-for="x in apps" :key="x.id" class="app-card" :class="{active:detail?.application.id===x.id}" @click="open(x)"><span>{{x.year}}</span><div><b>{{x.name}}</b><small>{{x.target_title}} · {{x.status}}</small></div></div></div><div v-if="detail" class="panel"><div class="panel-title"><div><h3>{{detail.application.name}}</h3><p class="muted">{{detail.application.target_title}} · {{detail.application.status}}</p></div><el-button @click="download(`/title-applications/${detail.application.id}/zip`,'职称申报材料.zip')">导出材料 ZIP</el-button></div><div class="complete"><el-progress type="dashboard" :percentage="detail.completeness"/><b>材料完整度由自定义条件自动计算</b></div><h4>材料目录</h4><el-table :data="detail.categories"><el-table-column prop="sort_order" label="#"/><el-table-column prop="name" label="目录名称"/><el-table-column label="成果数"><template #default="s">{{detail.items.filter((x:any)=>x.link.category_id===s.row.id).length}} 项</template></el-table-column></el-table><h4>条件检查</h4><div v-if="!detail.requirements.length" class="muted">尚未配置申报条件，系统不会写死规则。</div></div><div v-else class="panel empty">选择一个项目查看材料目录。</div></div><div v-else class="panel empty">还没有职称申报项目。</div><el-dialog v-model="dialog" title="新建职称申报" width="520"><el-form label-width="90"><el-form-item label="申报名称"><el-input v-model="form.name"/></el-form-item><el-form-item label="年度"><el-input-number v-model="form.year"/></el-form-item><el-form-item label="目标职称"><el-input v-model="form.target_title"/></el-form-item><el-form-item label="状态"><el-select v-model="form.status"><el-option v-for="x in ['准备中','材料整理中','待申报','已申报','已完成']" :key="x" :value="x"/></el-select></el-form-item></el-form><template #footer><el-button @click="dialog=false">取消</el-button><el-button type="primary" @click="create">创建</el-button></template></el-dialog></template>
+
+<template>
+  <div class="toolbar">
+    <el-select :model-value="selected?.id" placeholder="选择申报项目" style="width:320px"
+      @change="(id: number) => selected = projects.find(project => project.id === id)">
+      <el-option v-for="project in projects" :key="project.id" :value="project.id" :label="project.name" />
+    </el-select>
+    <el-button type="primary" @click="dialog = true">新建申报项目</el-button>
+  </div>
+  <ProjectWorkspace v-if="selected" :key="selected.id" :project="selected" />
+  <el-empty v-else description="创建申报项目后，可从成果库选入成果并准备佐证。" />
+  <el-dialog v-model="dialog" title="新建申报项目" width="min(92vw, 520px)">
+    <el-form label-position="top" @submit.prevent="create">
+      <el-form-item label="项目名称"><el-input v-model.trim="form.name" maxlength="128" /></el-form-item>
+      <el-form-item label="申报年度"><el-input-number v-model="form.year" :min="2000" :max="2100" /></el-form-item>
+      <el-form-item label="目标职称">
+        <el-select v-model="form.target_title">
+          <el-option v-for="title in ['教授', '副教授', '讲师', '助教']" :key="title" :value="title" />
+        </el-select>
+      </el-form-item>
+      <el-button type="primary" native-type="submit" :disabled="!form.name" :loading="busy">创建</el-button>
+    </el-form>
+  </el-dialog>
+</template>

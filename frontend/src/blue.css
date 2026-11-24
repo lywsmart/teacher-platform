@@ -27,6 +27,8 @@
 .login-box { width: min(100% - 40px, 400px); }
 .login-box .el-input { margin-bottom: 0; }
 body { min-width: 0; }
+.main, .page, .panel { min-width: 0; }
+.grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 @media (max-width: 800px) {
   .sidebar { width: 155px; padding: 14px 6px; }
   .sidebar .brand { padding: 6px 5px 18px; }

@@ -12,33 +12,22 @@ type AwardForm = {
 type Award = AwardForm & { id: number }
 type Evidence = { id: number; name: string; status: string; note: string }
 const templates = ref<Template[]>([])
-const projects = ref<{ id: number; name: string }[]>([])
 const rows = ref<Award[]>([])
 const next = ref<number | null>(null)
 const filter = ref('')
-const project = ref<number>()
 const editing = ref<number>()
 const editOpen = ref(false)
 const active = ref<Award>()
 const evidenceOpen = ref(false)
-const useOpen = ref(false)
-const linked = ref(false)
 const busy = ref(false)
 const attachments = ref<Evidence[]>([])
 function empty(template = ''): AwardForm {
   return { template, title: '', achievement_date: '', organization: '', level: '', prize: '',
     certificate_no: '', scope: '个人', role: '', rank: undefined, extras: {} }
 }
-function emptyUse() {
-  return { review_type: '教学为主型', use_for: '教学（工作）业绩', clause: '', basis: '',
-    self_score: undefined as number | undefined, missing: '' }
-}
 const form = ref<AwardForm>(empty())
-const usage = ref(emptyUse())
 const template = computed(() => templates.value.find(item => item.id === form.value.template))
-const reviewTypes = ['教学为主型', '教学科研并重型', '社会服务型', '思政课教师', '专职辅导员']
 const templateName = (id: string) => templates.value.find(item => item.id === id)?.name || id
-const useUrl = () => `/awards/${active.value?.id}/applications/${project.value}`
 
 async function run(task: () => Promise<void>) {
   busy.value = true
@@ -52,9 +41,7 @@ async function load(before = 0) {
   next.value = data.next
 }
 onMounted(() => run(async () => {
-  const [available, applications] = await Promise.all([api.get('/awards/templates'), api.get('/title-applications')])
-  templates.value = available.data
-  projects.value = applications.data
+  templates.value = (await api.get('/awards/templates')).data
   await load()
 }))
 function openEditor(item?: Award) {
@@ -103,24 +90,6 @@ async function upload(event: Event) {
   })
   input.value = ''
 }
-async function showUse(item: Award) {
-  if (!project.value) return
-  active.value = item
-  await run(async () => {
-    const { data } = await api.get(useUrl())
-    linked.value = !!data
-    usage.value = data ?? emptyUse()
-    useOpen.value = true
-  })
-}
-async function saveUse(remove = false) {
-  await run(async () => {
-    if (remove) await api.delete(useUrl())
-    else await api.put(useUrl(), usage.value)
-    useOpen.value = false
-    ElMessage.success(remove ? '已从申报清单移除' : '已更新申报清单')
-  })
-}
 </script>
 
 <template>
@@ -133,24 +102,17 @@ async function saveUse(remove = false) {
       <el-button type="primary" :disabled="busy || !templates.length" @click="openEditor()">录入获奖</el-button>
       <el-button :disabled="busy" @click="run(() => download('/awards/export', '获奖成果汇总.xlsx'))">导出汇总</el-button>
     </div>
-    <div class="toolbar">
-      <el-select v-model="project" style="width:260px" clearable placeholder="选择申报项目" :disabled="busy">
-        <el-option v-for="item in projects" :key="item.id" :value="item.id" :label="item.name" />
-      </el-select>
-      <el-button :disabled="!project || busy" @click="run(() => download(`/awards/export?project_id=${project}`, '职称获奖申报明细.xlsx'))">导出附件 18 和附件 2 对照表</el-button>
-      <router-link v-if="!projects.length" to="/titles">创建申报项目</router-link>
-    </div>
-    <el-table v-loading="busy && !editOpen && !evidenceOpen && !useOpen" :data="rows" empty-text="暂无获奖记录">
+    <p><router-link to="/titles">在职称申报项目中选入成果并填写用途</router-link></p>
+    <el-table v-loading="busy && !editOpen && !evidenceOpen" :data="rows" empty-text="暂无获奖记录">
       <el-table-column prop="title" label="获奖名称" min-width="150" />
       <el-table-column label="类别" min-width="145"><template #default="{ row }">{{ templateName(row.template) }}</template></el-table-column>
       <el-table-column prop="achievement_date" label="获奖日期" width="115" />
       <el-table-column label="级别" width="95"><template #default="{ row }">{{ row.level || '待核实' }}</template></el-table-column>
       <el-table-column prop="prize" label="奖等" width="90" />
-      <el-table-column label="操作" min-width="235">
+      <el-table-column label="操作" min-width="170">
         <template #default="{ row }">
           <el-button link type="primary" :disabled="busy" @click="openEditor(row)">编辑</el-button>
           <el-button link type="primary" :disabled="busy" @click="showEvidence(row)">佐证</el-button>
-          <el-button link type="primary" :disabled="!project || busy" @click="showUse(row)">申报用途</el-button>
           <el-button link type="danger" :disabled="busy" @click="remove(row)">删除</el-button>
         </template>
       </el-table-column>
@@ -187,19 +149,5 @@ async function saveUse(remove = false) {
       <el-table-column prop="note" label="审核意见" min-width="120" />
       <el-table-column label="操作" width="90"><template #default="{ row }"><el-button link type="primary" :disabled="busy" @click="run(() => download(`/files/${row.id}/download`, row.name))">下载</el-button></template></el-table-column>
     </el-table>
-  </el-dialog>
-  <el-dialog v-model="useOpen" :title="active?.title + ' · 申报用途'" width="min(95vw, 620px)">
-    <el-form label-position="top" @submit.prevent="saveUse()">
-      <div class="grid-2">
-        <el-form-item label="评审类型"><el-select v-model="usage.review_type"><el-option v-for="type in reviewTypes" :key="type" :value="type" /></el-select></el-form-item>
-        <el-form-item label="业绩用途"><el-select v-model="usage.use_for"><el-option v-for="type in ['教学（工作）业绩', '科研业绩', '仅计分']" :key="type" :value="type" /></el-select></el-form-item>
-      </div>
-      <el-form-item label="附件 2 适用条款"><el-input v-model="usage.clause" maxlength="500" /></el-form-item>
-      <el-form-item label="附件 18 计分依据"><el-input v-model="usage.basis" maxlength="500" /></el-form-item>
-      <el-form-item label="自评得分（人工填写）"><el-input-number v-model="usage.self_score" :min="0" :max="100" :precision="2" /></el-form-item>
-      <el-form-item label="待补佐证"><el-input v-model="usage.missing" maxlength="500" /></el-form-item>
-      <el-button type="primary" native-type="submit" :loading="busy">保存申报用途</el-button>
-      <el-button v-if="linked" :disabled="busy" @click="saveUse(true)">移出申报清单</el-button>
-    </el-form>
   </el-dialog>
 </template>

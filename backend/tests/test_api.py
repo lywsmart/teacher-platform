@@ -1,4 +1,5 @@
 import os
+import zipfile
 from io import BytesIO
 from tempfile import TemporaryDirectory
 from pathlib import Path
@@ -11,6 +12,9 @@ os.environ["BOOTSTRAP_ADMIN_PASSWORD"] = "test-admin-password"
 from fastapi.testclient import TestClient
 from openpyxl import load_workbook
 from app.main import app
+from app.awards import AwardApplication
+from app.core.database import SessionLocal
+from app.models import TitleApplicationItem
 
 
 client = TestClient(app)
@@ -112,4 +116,56 @@ def test_registration_award_and_evidence_review():
         assert workbook.sheetnames == ["获奖成果汇总", "附件18获奖计分明细", "附件2业绩条件对照"]
         assert workbook.worksheets[1]["D2"].value == 2
         assert workbook.worksheets[2]["D2"].value == "教学（工作）业绩"
+        workspace = f"/api/v1/title-applications/{project}/workspace"
+        state = client.get(workspace, headers=auth).json()
+        with SessionLocal() as database:
+            database.add(AwardApplication(application_id=project, achievement_id=award_id,
+                                          review_data={"use_for": "教学（工作）业绩", "review_type": "教学为主型"}))
+            for directory in state["directories"][:2]:
+                database.add(TitleApplicationItem(application_id=project, category_id=directory["id"], achievement_id=award_id))
+            database.commit()
+        state = client.get(workspace, headers=auth).json()
+        assert len(state["rows"]) == 1
+        assert state["rows"][0]["evidence"][0]["status"] == "需补充"
+        original = client.post(workspace + "/exports", headers=auth, json={"mode": "draft"})
+        assert original.status_code == 201, original.text
+        original_url = f"{workspace}/exports/{original.json()['id']}"
+        draft = client.get(original_url, headers=auth).content
+        with zipfile.ZipFile(BytesIO(draft)) as archive:
+            assert "申报对照与计分.xlsx" in archive.namelist()
+            assert any(name.endswith("证书.pdf") for name in archive.namelist())
+        assert client.get(original_url, headers=admin).status_code == 404
+        assert client.post(workspace + "/exports", headers=auth, json={"mode": "package"}).status_code == 409
+
+        assert client.put(workspace + "/settings", headers=auth, json={
+            "review_type": "教学为主型", "rule_year": 2026, "groups": [{
+                "name": "任选其一", "mode": "any", "clauses": [
+                    {"name": "条款A", "status": "未满足"}, {"name": "条款B", "status": "已满足"}
+                ]
+            }]
+        }).status_code == 200
+        assert client.get(workspace, headers=auth).json()["groups"][0]["outcome"] == "已满足"
+        replacement = client.post(f"/api/v1/achievements/{award_id}/files", headers=auth,
+                                  files={"file": ("指导名单.pdf", b"%PDF-1.4 replacement", "application/pdf")}).json()
+        item_url = f"{workspace}/items/{award_id}"
+        assert client.put(item_url, headers=auth, json={
+            "category_id": state["directories"][0]["id"], "use_for": "教学（工作）业绩",
+            "condition": "已满足", "clause": "已人工核对", "evidence_ids": [replacement["id"]],
+            "self_score": 2,
+        }).status_code == 200
+        assert client.get(workspace, headers=auth).json()["rows"][0]["evidence"][0]["status"] == "待审核"
+        assert client.put(item_url + "/score", headers=auth, json={"score": 3}).status_code == 403
+        assert client.put(item_url + "/score", headers=admin, json={"score": 1.5}).status_code == 200
+        assert client.put(f"/api/v1/admin/evidence/achievement/{replacement['id']}",
+                          headers=admin, json={"status": "通过"}).status_code == 200
+        package = client.post(workspace + "/exports", headers=auth, json={"mode": "package", "acknowledge_issues": True})
+        assert package.status_code == 201
+        second_url = f"{workspace}/exports/{package.json()['id']}"
+        with zipfile.ZipFile(BytesIO(client.get(second_url, headers=auth).content)) as archive:
+            assert any(name.endswith("指导名单.pdf") for name in archive.namelist())
+            assert not any(name.endswith("证书.pdf") for name in archive.namelist())
+            assert load_workbook(BytesIO(archive.read("申报对照与计分.xlsx"))).worksheets[1]["E2"].value == 1.5
+        assert client.get(original_url, headers=auth).content == draft
         assert client.delete(use_url, headers=auth).status_code == 204
+        assert client.get(workspace, headers=auth).json()["rows"] == []
+        assert client.get(f"/api/v1/achievements/{award_id}", headers=auth).status_code == 200

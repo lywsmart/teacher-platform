@@ -22,6 +22,7 @@ from app.core.config import get_settings
 from app.admin import router as account_router, require_admin
 from app.awards import AwardDetail, router as award_router
 from app.evidence import router as evidence_router
+from app.project_workspace import build_workspace, router as workspace_router, selected_achievement_ids
 from app.materials import ApplicationMaterial, router as material_router
 from app.core.database import Base, SessionLocal, engine, get_db
 from app.core.security import create_token, current_user, verify_password
@@ -38,11 +39,12 @@ from app.services.storage_service import StorageService
 
 
 settings = get_settings()
-app = FastAPI(title=settings.app_name, version="2.1.0")
+app = FastAPI(title=settings.app_name, version="2.2.0")
 app.include_router(account_router)
 app.include_router(material_router)
 app.include_router(award_router)
 app.include_router(evidence_router)
+app.include_router(workspace_router)
 app.add_middleware(CORSMiddleware, allow_origins=settings.cors_list, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 
@@ -312,17 +314,20 @@ def owned_application(app_id, user_id, db):
 def app_detail(app_id: int, user=Depends(current_user), db: Session = Depends(get_db)):
     item = owned_application(app_id, user.id, db)
     cats = db.scalars(select(TitleApplicationCategory).where(TitleApplicationCategory.application_id == app_id).order_by(TitleApplicationCategory.sort_order)).all()
-    links = db.execute(select(TitleApplicationItem, Achievement).join(Achievement).where(TitleApplicationItem.application_id == app_id)).all()
+    workspace = build_workspace(db, item)
+    links = [{"link": {"category_id": row["data"]["category_id"], "achievement_id": row["id"]},
+              "achievement": db.get(Achievement, row["id"])} for row in workspace["rows"] if not row["deleted"]]
     rules = db.scalars(select(TitleRequirementRule).where(TitleRequirementRule.application_id == app_id)).all()
     checks = []
     for rule in rules:
-        matched = [a for _, a in links if all(str(getattr(a, k, "")) == str(v) for k, v in rule.filters.items())]
+        matched = [entry["achievement"] for entry in links if all(
+            str(getattr(entry["achievement"], k, "")) == str(v) for k, v in rule.filters.items())]
         actual = sum(a.score for a in matched) if rule.metric == "score" else len(matched)
         ratio = min(actual / rule.target_value, 1) if rule.target_value else 1
         checks.append({"id": rule.id, "name": rule.name, "actual": actual, "target": rule.target_value, "status": "已满足" if ratio >= 1 else ("部分满足" if ratio > 0 else "未满足"), "ratio": ratio, "weight": rule.weight})
     total_weight = sum(x["weight"] for x in checks)
     completeness = round(sum(x["ratio"] * x["weight"] for x in checks) / total_weight * 100) if total_weight else 0
-    return {"application": item, "categories": cats, "items": [{"link": link, "achievement": achievement} for link, achievement in links], "requirements": checks, "completeness": completeness}
+    return {"application": item, "categories": cats, "items": links, "requirements": checks, "completeness": completeness}
 
 
 @app.post("/api/v1/title-applications/{app_id}/categories")
@@ -355,32 +360,18 @@ def add_requirement(app_id: int, payload: RequirementIn, user=Depends(current_us
 
 @app.get("/api/v1/title-applications/{app_id}/zip")
 def title_zip(app_id: int, user=Depends(current_user), db: Session = Depends(get_db)):
-    owned_application(app_id, user.id, db)
-    materials = db.scalars(select(ApplicationMaterial).where(ApplicationMaterial.application_id == app_id)).all()
-    cats = db.scalars(select(TitleApplicationCategory).where(TitleApplicationCategory.application_id == app_id).order_by(TitleApplicationCategory.sort_order)).all()
-    links = db.execute(select(TitleApplicationItem, Achievement).join(Achievement).where(
-        TitleApplicationItem.application_id == app_id,
-        Achievement.user_id == user.id,
-        Achievement.deleted_at.is_(None),
-    )).all()
-    cat_map = {c.id: c for c in cats}; storage = StorageService(); stream = io.BytesIO()
+    project = owned_application(app_id, user.id, db)
+    workspace = build_workspace(db, project)
+    storage = StorageService()
+    stream = io.BytesIO()
     with zipfile.ZipFile(stream, "w", zipfile.ZIP_DEFLATED) as archive:
-        for material in materials:
-            path = storage.resolve(material.path)
-            if not path.is_file():
-                raise HTTPException(409, f"缺少磁盘文件：{material.name}")
-            archive.write(path, f"申报材料/{material.category}/{material.id}_{zip_name(material.name)}")
-        for i, cat in enumerate(cats, 1):
-            archive.writestr(f"{i:02d}_{zip_name(cat.name)}/.keep", "")
-        for link, achievement in links:
-            cat = cat_map.get(link.category_id)
-            if not cat: continue
-            number = cats.index(cat) + 1
-            files = db.scalars(select(AchievementFile).where(AchievementFile.achievement_id == achievement.id, AchievementFile.deleted_at.is_(None))).all()
-            for f in files:
-                path = storage.resolve(f.file_path)
-                if path.is_file():
-                    archive.write(path, f"{number:02d}_{zip_name(cat.name)}/{zip_name(achievement.title)}/{f.id}_{zip_name(f.original_name)}")
+        for material in workspace["materials"]:
+            if material["available"]:
+                archive.write(storage.resolve(material["path"]), f"申报材料/{zip_name(material['category'])}/{material['id']}_{zip_name(material['name'])}")
+        for row in workspace["rows"]:
+            for file in row["evidence"]:
+                if file["available"]:
+                    archive.write(storage.resolve(file["path"]), f"成果佐证/{zip_name(row['directory'])}/{row['id']}_{zip_name(row['title'])}/{file['id']}_{zip_name(file['name'])}")
     stream.seek(0)
     return StreamingResponse(stream, media_type="application/zip", headers={"Content-Disposition": f"attachment; filename=title-application-{app_id}.zip"})
 
@@ -401,7 +392,7 @@ async def generate_summary(payload: SummaryGenerateIn, user=Depends(current_user
     if payload.category: query = query.where(or_(Achievement.category == payload.category, Achievement.achievement_type == payload.category))
     if payload.title_application_id:
         owned_application(payload.title_application_id, user.id, db)
-        linked = select(TitleApplicationItem.achievement_id).where(TitleApplicationItem.application_id == payload.title_application_id)
+        linked = selected_achievement_ids(db, payload.title_application_id)
         query = query.where(Achievement.id.in_(linked))
     items = db.scalars(query.order_by(Achievement.year)).all()
     if not items: raise HTTPException(400, "所选范围内没有真实成果，无法生成总结")
@@ -447,7 +438,7 @@ def create_backup(user=Depends(require_admin), db: Session = Depends(get_db)):
         manifest = {"version": app.version, "created_at": datetime.utcnow().isoformat(), "database": "database.db"}
         with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
             archive.write(snapshot, "database.db"); archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
-            for folder in ("achievements", "applications"):
+            for folder in ("achievements", "applications", "exports"):
                 files_root = settings.storage_root.resolve() / folder
                 if files_root.exists():
                     for path in files_root.rglob("*"):

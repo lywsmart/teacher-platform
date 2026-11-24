@@ -161,34 +161,39 @@ def list_award_evidence(award_id: int, user: User = Depends(current_user), db: S
 
 @router.get("/{award_id}/applications/{project_id}")
 def read_use(award_id: int, project_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    from app.project_workspace import build_workspace
+
     get_award(award_id, user, db)
-    get_project(project_id, user, db)
-    row = db.get(AwardApplication, (project_id, award_id))
-    return row.review_data if row else None
+    result = build_workspace(db, get_project(project_id, user, db))
+    row = next((row for row in result["rows"] if row["id"] == award_id), None)
+    return {**row["data"], "review_type": result["settings"]["review_type"] or "教学为主型"} if row else None
 
 
 @router.put("/{award_id}/applications/{project_id}")
 def save_use(award_id: int, project_id: int, payload: ApplicationUse,
              user: User = Depends(current_user), db: Session = Depends(get_db)):
-    get_award(award_id, user, db)
-    get_project(project_id, user, db)
-    row = db.get(AwardApplication, (project_id, award_id))
-    if row is None:
-        row = AwardApplication(application_id=project_id, achievement_id=award_id)
-        db.add(row)
-    row.review_data = payload.model_dump()
-    db.commit()
-    return row.review_data
+    from app.project_workspace import ProjectSettings, SelectionInput, build_workspace, set_selection
+
+    _, award = get_award(award_id, user, db)
+    project = get_project(project_id, user, db)
+    result = build_workspace(db, project)
+    row = next((row for row in result["rows"] if row["id"] == award_id), None)
+    data = row["data"] if row else {"score_group": TEMPLATES[award.template][2]}
+    settings = db.get(ProjectSettings, project.id)
+    if settings and settings.settings["review_type"] != payload.review_type:
+        raise HTTPException(409, "请在申报项目中统一修改评审类型")
+    if not settings:
+        db.merge(ProjectSettings(project_id=project.id, settings={"review_type": payload.review_type, "rule_year": None}))
+    selection = SelectionInput(**{**data, **payload.model_dump(exclude={"review_type"})})
+    return {**set_selection(db, project, award_id, selection), "review_type": payload.review_type}
 
 
 @router.delete("/{award_id}/applications/{project_id}", status_code=204)
 def remove_use(award_id: int, project_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    from app.project_workspace import remove_item
+
     get_award(award_id, user, db)
-    get_project(project_id, user, db)
-    row = db.get(AwardApplication, (project_id, award_id))
-    if row:
-        db.delete(row)
-        db.commit()
+    return remove_item(project_id, award_id, user, db)
 
 
 def append_text(sheet, values):
@@ -208,19 +213,22 @@ def export_awards(project_id: Optional[int] = None, user: User = Depends(current
         append_text(summary, [TEMPLATES[detail.template][0], item.title, item.achievement_date, item.organization,
                               item.level, detail.details["prize"], item.role, item.rank, item.certificate_no])
     if project_id is not None:
+        from app.project_workspace import build_workspace
+
         project = get_project(project_id, user, db)
+        workspace = build_workspace(db, project)
         score = workbook.create_sheet("附件18获奖计分明细")
         conditions = workbook.create_sheet("附件2业绩条件对照")
         append_text(score, ["计分栏目", "获奖名称", "计分依据", "自评得分", "审核得分", "审核签字"])
         append_text(conditions, ["申报项目", "申报职称", "评审类型", "业绩用途", "适用条款", "成果", "级别", "排名", "待补佐证"])
-        query = owned_awards(user.id).join_from(
-            Achievement, AwardApplication, AwardApplication.achievement_id == Achievement.id
-        ).where(AwardApplication.application_id == project_id)
-        for item, detail, linked in db.execute(query.add_columns(AwardApplication).order_by(AwardDetail.template, Achievement.id)):
-            data = linked.review_data
-            append_text(score, [TEMPLATES[detail.template][2], item.title, data["basis"], data["self_score"], None, None])
-            append_text(conditions, [project.name, project.target_title, data["review_type"], data["use_for"],
-                                     data["clause"], item.title, item.level, item.rank, data["missing"]])
+        for row in workspace["rows"]:
+            if row["prize"] is None or row["deleted"]:
+                continue
+            data = row["data"]
+            append_text(score, [data["score_group"], row["title"], data["basis"], data["self_score"],
+                                data.get("audited_score"), data.get("auditor")])
+            append_text(conditions, [project.name, project.target_title, workspace["settings"]["review_type"],
+                                     data["use_for"], data["clause"], row["title"], row["level"], row["rank"], data["missing"]])
     for sheet in workbook:
         sheet.freeze_panes = "A2"
         sheet.auto_filter.ref = sheet.dimensions
